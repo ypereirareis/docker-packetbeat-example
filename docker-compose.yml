@@ -1,0 +1,64 @@
+version: "2.2"
+services:
+
+  # Used as the Packetbeat output
+  # Of course, we could create a cluster with more nodes
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:6.0.0
+    container_name: packetbeat-elasticsearch
+    memswap_limit: 0
+    mem_limit: 2g
+    cap_add:
+      - IPC_LOCK
+    environment:
+      - cluster.name=docker-cluster
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - ./config/usr/share/elasticsearch/config/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+    ports:
+      - "9223:9200"
+    networks:
+      - packetbeat
+
+  # Used to analyse data sent to elasticsearch from Packetbeat.
+  # Packetbeat directly creates Dashbords into Kibana
+  kibana:
+    image: docker.elastic.co/kibana/kibana:6.0.0
+    container_name: packetbeat-kibana
+    volumes:
+      - ./config/opt/kibana/config/kibana.yml:/opt/kibana/config/kibana.yml:ro
+    depends_on:
+      - elasticsearch
+    ports:
+      - "5667:5601"
+    networks:
+      - packetbeat
+
+  # Specific container and configuration to monitor the HOST (filesystem, memory, processes,...)
+  packetbeat-host:
+    build:
+      context: ./docker/packetbeat
+    container_name: packetbeat-packetbeat-host
+    command: -e
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - "WAIT_FOR_HOSTS=elasticsearch:9223 kibana:5667"
+      - "HOST_ELASTICSEARCH=elasticsearch:9223"
+      - "HOST_KIBANA=kibana:5667"
+    extra_hosts:
+      - "elasticsearch:172.17.0.1" # The IP of docker0 interface to access host from container
+      - "kibana:172.17.0.1" # The IP of docker0 interface to access host from container
+    network_mode: host # Mandatory to monitor HOST filesystem, memory, processes,...
+
+networks:
+  packetbeat:
+    external:
+      name: packetbeat
+
+
